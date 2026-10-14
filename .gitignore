@@ -1,2 +1,5 @@
 ### environnement ###
 .venv/
+
+### cache python ###
+prem/__pycache__
