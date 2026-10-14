@@ -77,7 +77,14 @@ class TestApi(unittest.TestCase):
             self.assertEqual(models_dir, self.models_dir)
             return {"model": "modele"}
 
-        with patch.object(api, "entrainer", side_effect=fake_entrainer):
+        with (
+            patch.object(api, "entrainer", side_effect=fake_entrainer),
+            patch.object(
+                api,
+                "run_in_threadpool",
+                wraps=api.run_in_threadpool,
+            ) as run_in_threadpool,
+        ):
             response = self._post(
                 "/models",
                 files={"csv": ("donnees.csv", b"semaine,delta_prix\n", "text/csv")},
@@ -86,6 +93,7 @@ class TestApi(unittest.TestCase):
 
         self.assertEqual(response.status_code, 201)
         self.assertEqual(response.json(), {"model": "modele"})
+        self.assertEqual(run_in_threadpool.await_count, 1)
 
     def test_create_model_returns_unprocessable_entity_for_invalid_dataset(self) -> None:
         with patch.object(api, "entrainer", side_effect=DatasetInvalide("CSV invalide")):
@@ -122,15 +130,23 @@ class TestApi(unittest.TestCase):
             def get_tree_image(self) -> dict[str, str]:
                 return image
 
-        with patch.object(
-            api,
-            "ModelReader",
-            return_value=_ReaderWithTreeImage({}),
+        with (
+            patch.object(
+                api,
+                "ModelReader",
+                return_value=_ReaderWithTreeImage({}),
+            ),
+            patch.object(
+                api,
+                "run_in_threadpool",
+                wraps=api.run_in_threadpool,
+            ) as run_in_threadpool,
         ):
             response = self._get("/models/modele/tree")
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), image)
+        self.assertEqual(run_in_threadpool.await_count, 1)
 
     def test_predict_returns_prediction_as_json(self) -> None:
         (self.models_dir / "modele.pkl").touch()
@@ -176,7 +192,14 @@ class TestApi(unittest.TestCase):
         comestible.put_value("prix", 1.5)
         comestible.put_value("zone", "France")
 
-        with patch.object(api, "predire", side_effect=fake_predire):
+        with (
+            patch.object(api, "predire", side_effect=fake_predire),
+            patch.object(
+                api,
+                "run_in_threadpool",
+                wraps=api.run_in_threadpool,
+            ) as run_in_threadpool,
+        ):
             response = self._post(
                 "/models/modele/predict",
                 json={"dictio": comestible.get_dict()},
@@ -187,6 +210,7 @@ class TestApi(unittest.TestCase):
         self.assertEqual(response.json()["delta_prix_eur_mwh"], 1.5)
         self.assertEqual(calls[0][0], {"prix": 1.5, "zone": "France"})
         self.assertEqual(calls[0][1:], ("modele.pkl", self.models_dir))
+        self.assertEqual(run_in_threadpool.await_count, 1)
 
     def test_unknown_model_returns_not_found(self) -> None:
         response = self._get("/models/inexistant/features")
