@@ -94,7 +94,7 @@ def mae_baselines(y: pd.Series, cv: TimeSeriesSplit) -> dict[str, float]:
     }
 
 
-def entrainer(source : Path, max_depth: int | None = None, models_dir: Path = Path("cart_models")) -> dict[str, object]:
+def creer(source: Path, max_depth: int | None = None, models_dir: Path = MODELS_DIR) -> dict[str, object]:
     """Entraîne, valide, sauvegarde. Renvoie le rapport (nom du modèle + métriques)."""
     if max_depth is not None and not 1 <= max_depth <= 20:
         raise DatasetInvalide("max_depth doit être compris entre 1 et 20")
@@ -141,13 +141,91 @@ def entrainer(source : Path, max_depth: int | None = None, models_dir: Path = Pa
     return rapport
 
 
+def entrainer_deja_existant(
+    source: Path,
+    nom_modele: str,
+    models_dir: Path = MODELS_DIR,
+) -> dict[str, object]:
+    """Réentraîne le pipeline d'un modèle existant avec un nouveau dataset."""
+    if Path(nom_modele).name != nom_modele or nom_modele in {".", ".."}:
+        raise ValueError("Le nom du modèle doit être un nom de fichier, sans chemin")
+    nom_fichier = nom_modele if nom_modele.endswith(".pkl") else f"{nom_modele}.pkl"
+    chemin_modele = models_dir / nom_fichier
+    if not chemin_modele.is_file():
+        raise FileNotFoundError(f"Modèle introuvable : {nom_fichier}")
+
+    artefact = cast(object, joblib.load(chemin_modele))  # type: ignore[reportUnknownMemberType]
+    if not isinstance(artefact, dict):
+        raise ValueError(f"Artefact de modèle invalide : {chemin_modele}")
+    donnees_artefact = cast(dict[object, object], artefact)
+    pipeline = donnees_artefact.get("pipeline")
+    features_existantes = donnees_artefact.get("features")
+    if not isinstance(pipeline, Pipeline) or not isinstance(features_existantes, dict):
+        raise ValueError(f"Artefact de modèle incomplet : {chemin_modele}")
+
+    X, y = charger_dataset(source)
+    types_features = {
+        colonne: (
+            "numerique" if pd.api.types.is_numeric_dtype(X[colonne]) else "categorielle"
+        )
+        for colonne in X.columns
+    }
+    features_validees: dict[str, str] = {}
+    for nom, type_feature in cast(dict[object, object], features_existantes).items():
+        if (
+            not isinstance(nom, str)
+            or not isinstance(type_feature, str)
+            or type_feature not in {"numerique", "categorielle"}
+        ):
+            raise ValueError(f"Liste de features invalide dans le modèle : {chemin_modele}")
+        features_validees[nom] = type_feature
+    if types_features != features_validees:
+        raise DatasetInvalide(
+            "Les variables du dataset ne correspondent pas à celles du modèle existant"
+        )
+
+    pipeline.fit(X, y)  # type: ignore[reportUnknownMemberType]
+    valeurs_predites = pipeline.predict(X)  # type: ignore[reportUnknownMemberType]
+    mae_entrainement = float(np.mean(np.abs(y.to_numpy() - valeurs_predites)))
+    date_entrainement = datetime.now()
+    parametres: dict[str, object] = {}
+    arbre = cast(dict[str, object], pipeline.named_steps).get("arbre")
+    if isinstance(arbre, DecisionTreeRegressor):
+        params_arbre = cast(
+            dict[str, object],
+            arbre.get_params(),  # type: ignore[reportUnknownMemberType]
+        )
+        parametres = {
+            cle: valeur
+            for cle, valeur in params_arbre.items()
+            if cle in {"max_depth", "min_samples_leaf"}
+        }
+
+    rapport: dict[str, object] = {
+        "model": nom_fichier.removesuffix(".pkl"),
+        "entraine_le": date_entrainement.isoformat(timespec="seconds"),
+        "n_semaines": len(y),
+        "cible": CIBLE,
+        "unite": "€/MWh",
+        "parametres": parametres,
+        "mae_entrainement": round(mae_entrainement, 2),
+    }
+    artefact_mis_a_jour: dict[str, object] = {
+        "pipeline": pipeline,
+        "features": features_validees,
+        "rapport": rapport,
+    }
+    joblib.dump(artefact_mis_a_jour, chemin_modele)  # type: ignore[reportUnknownMemberType]
+    return rapport
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Entraîne un arbre CART PrEM")
     parser.add_argument("dataset", type=Path)
     parser.add_argument("--max-depth", type=int, default=None)
     args = parser.parse_args()
 
-    rapport = entrainer(args.dataset, args.max_depth)
+    rapport = creer(args.dataset, args.max_depth)
     for cle, valeur in rapport.items():
         print(f"{cle:>15} : {valeur}")
 
