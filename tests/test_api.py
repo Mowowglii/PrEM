@@ -1,10 +1,13 @@
 """Tests des routes HTTP de l'API."""
 
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 from typing import cast
 from unittest.mock import patch
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from fastapi.testclient import TestClient
 from httpx import Response as HttpResponse
@@ -106,6 +109,27 @@ class TestApi(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), features)
+
+    def test_get_tree_returns_json_safe_image_data(self) -> None:
+        (self.models_dir / "modele.pkl").touch()
+        image = {
+            "media_type": "image/png",
+            "data_base64": "iVBORw0KGgo=",
+        }
+
+        class _ReaderWithTreeImage(_ModelReaderStub):
+            def get_tree_image(self) -> dict[str, str]:
+                return image
+
+        with patch.object(
+            api,
+            "ModelReader",
+            return_value=_ReaderWithTreeImage({}),
+        ):
+            response = self._get("/models/modele/tree")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), image)
 
     def test_predict_returns_prediction_as_json(self) -> None:
         prediction = Prediction(
