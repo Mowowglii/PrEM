@@ -1,8 +1,14 @@
+import base64
+from io import BytesIO
 import joblib  # type: ignore[reportMissingTypeStubs]
+from matplotlib.backends.backend_agg import FigureCanvasAgg
+from matplotlib.figure import Figure
 from pathlib import Path
 from typing import cast
 
+from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
+from sklearn.tree import DecisionTreeRegressor, plot_tree
 
 
 class ModelReader:
@@ -51,5 +57,36 @@ class ModelReader:
             "variables_numeriques": variables_numeriques,
             "nombre_variables_qualitatives": len(variables_qualitatives),
             "variables_qualitatives": variables_qualitatives,
+        }
+
+    def get_tree_image(self) -> dict[str, str]:
+        """Renvoie l'arbre comme PNG encodé en Base64, prêt pour une réponse JSON."""
+        etapes = cast(dict[str, object], self.model.named_steps)
+        preparation = etapes.get("prep")
+        arbre = etapes.get("arbre")
+        if not isinstance(preparation, ColumnTransformer):
+            raise ValueError("Le préprocesseur du modèle est invalide")
+        if not isinstance(arbre, DecisionTreeRegressor):
+            raise ValueError("L'arbre de décision du modèle est invalide")
+
+        noms_features = [
+            str(nom) for nom in preparation.get_feature_names_out()
+        ]
+        figure = Figure(figsize=(20, 12), constrained_layout=True)
+        canvas = FigureCanvasAgg(figure)
+        axe = figure.subplots()
+        plot_tree(
+            arbre,
+            feature_names=noms_features,
+            filled=True,
+            rounded=True,
+            ax=axe,
+        )
+
+        image = BytesIO()
+        canvas.print_png(image)  # type: ignore[reportUnknownMemberType]
+        return {
+            "media_type": "image/png",
+            "data_base64": base64.b64encode(image.getvalue()).decode("ascii"),
         }
         
