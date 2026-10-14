@@ -1,6 +1,29 @@
 # PrEM
 Prédiction de la variation hebdomadaire du prix de l’électricité par arbres de décision CART, servis et expliqués via une API FastAPI.
 
+## Installation
+
+Depuis la racine du projet, créez et activez un environnement virtuel, puis installez les dépendances déclarées dans `requirements.txt` :
+
+```powershell
+py -3.12 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+```
+
+Pour lancer l'API après l'installation :
+
+```powershell
+python -m uvicorn prem.api:app --reload
+```
+
+Lancer les tests avec :
+
+```powershell
+python -m unittest discover -s tests
+```
+
 ## API
 
 Démarrer le serveur depuis la racine du projet :
