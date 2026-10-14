@@ -13,7 +13,11 @@ La documentation interactive est disponible sur `/docs`.
 
 - `GET /models` : liste les modèles entraînés (`.pkl`).
 - `GET /datasets` : liste les jeux de données CSV du dossier `data`.
+- `GET /datasets/{name}` : renvoie le nom et le contenu UTF-8 d'un dataset.
+- `POST /datasets` : sauvegarde un CSV téléversé dans `data` sans écraser un fichier existant.
 - `POST /models` : entraîne un modèle à partir d'un CSV envoyé en multipart (`csv` requis, `max_depth` facultatif).
+- `POST /models/{name}/train` : réentraîne le pipeline d'un modèle existant à partir d'un CSV dont les variables et types correspondent au modèle.
+- `DELETE /models/{name}` et `DELETE /datasets/{name}` : suppriment un modèle ou un dataset.
 - `GET /models/{name}/features` : renvoie les variables numériques et qualitatives du modèle.
 - `GET /models/{name}/tree` : renvoie l'arbre de décision sous forme d'un PNG Base64 (`media_type` et `data_base64`).
 - `POST /models/{name}/predict` : prédit avec un corps JSON correspondant aux champs de `Comestible`. La route `GET` historique reste disponible.
