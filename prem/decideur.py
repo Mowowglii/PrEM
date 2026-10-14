@@ -57,7 +57,7 @@ def _chemin_modele(models_dir: Path, nom_modele: str | None) -> Path:
 
 def _charger_modele(
     chemin: Path,
-) -> tuple[ColumnTransformer, DecisionTreeRegressor, dict[str, str]]:
+) -> tuple[Pipeline, dict[str, str]]:
     artefact = cast(object, joblib.load(chemin))  # type: ignore[reportUnknownMemberType]
     if not isinstance(artefact, dict):
         raise ValueError(f"Artefact de modèle invalide : {chemin}")
@@ -68,23 +68,16 @@ def _charger_modele(
     if not isinstance(pipeline, Pipeline) or not isinstance(features_brutes, dict):
         raise ValueError(f"Artefact de modèle incomplet : {chemin}")
 
-    etapes = cast(
-        dict[str, object],
-        pipeline.named_steps,  # type: ignore[reportUnknownMemberType]
-    )
-    preparation = etapes.get("prep")
-    arbre = etapes.get("arbre")
-    if not isinstance(preparation, ColumnTransformer):
-        raise ValueError(f"Le préprocesseur du modèle est invalide : {chemin}")
-    if not isinstance(arbre, DecisionTreeRegressor):
-        raise ValueError(f"Le pipeline du modèle est invalide : {chemin}")
-
     features: dict[str, str] = {}
     for nom, type_feature in cast(dict[object, object], features_brutes).items():
-        if not isinstance(nom, str) or not isinstance(type_feature, str):
+        if (
+            not isinstance(nom, str)
+            or not isinstance(type_feature, str)
+            or type_feature not in {"numerique", "categorielle"}
+        ):
             raise ValueError(f"Liste de features invalide dans le modèle : {chemin}")
         features[nom] = type_feature
-    return preparation, arbre, features
+    return pipeline, features
 
 
 def _nom_feature_origine(nom_transforme: str, features: list[str]) -> tuple[str, str]:
@@ -103,40 +96,13 @@ def _nom_feature_origine(nom_transforme: str, features: list[str]) -> tuple[str,
     return origine, suffixe
 
 
-def predire(
-    comestible: Mapping[str, object],
-    model: str | None = None,
-    models_dir: Path = MODELS_DIR,
-) -> Prediction:
-    """Prédit la variation de prix pour un seul dictionnaire de features.
-
-    Les features omises sont présentées au pipeline comme manquantes afin qu'il
-    applique ses imputeurs. ``model`` accepte le nom du modèle avec ou sans
-    extension ``.pkl`` ; sans nom, le fichier le plus récemment modifié est pris.
-    """
-    chemin_modele = _chemin_modele(models_dir, model)
-    preparation, arbre, types_features = _charger_modele(chemin_modele)
-    features = list(types_features)
-
-    inconnues = set(comestible) - set(features)
-    if inconnues:
-        noms = ", ".join(sorted(map(str, inconnues)))
-        raise ValueError(f"Feature(s) inconnue(s) pour le modèle : {noms}")
-
-    valeurs = {feature: comestible.get(feature) for feature in features}
-    ligne = pd.DataFrame([valeurs], columns=features)
-    for feature, type_feature in types_features.items():
-        if type_feature == "numerique":
-            valeur = valeurs[feature]
-            if valeur is not None and (
-                isinstance(valeur, (bool, np.bool_))
-                or not isinstance(valeur, (int, float, np.integer, np.floating))
-            ):
-                raise ValueError(f"La feature « {feature} » doit être numérique ou None")
-            ligne[feature] = pd.to_numeric(ligne[feature], errors="raise")
-        elif type_feature != "categorielle":
-            raise ValueError(f"Type de feature inconnu dans le modèle : {type_feature}")
-
+def _expliquer_chemin(
+    preparation: ColumnTransformer,
+    arbre: DecisionTreeRegressor,
+    ligne: pd.DataFrame,
+    features: list[str],
+    types_features: dict[str, str],
+) -> tuple[list[str], list[str], int]:
     donnees_transformees = preparation.transform(ligne)
     noms_transformes = preparation.get_feature_names_out()
     chemin_decision = cast(
@@ -158,29 +124,81 @@ def predire(
 
         if gauche in noeuds_visites:
             noeud_suivant = gauche
-            if types_features[feature] == "categorielle" and categorie:
-                condition = f"{feature} != {categorie!r}"
-            else:
-                condition = f"{feature} <= {structure_arbre.threshold[noeud]:g}"
+            operateur = "!=" if types_features[feature] == "categorielle" and categorie else "<="
         elif droite in noeuds_visites:
             noeud_suivant = droite
-            if types_features[feature] == "categorielle" and categorie:
-                condition = f"{feature} = {categorie!r}"
-            else:
-                condition = f"{feature} > {structure_arbre.threshold[noeud]:g}"
+            operateur = "=" if types_features[feature] == "categorielle" and categorie else ">"
         else:
             raise RuntimeError("Le chemin de décision ne correspond pas à l'arbre chargé")
 
+        if operateur in {"=", "!="}:
+            condition = f"{feature} {operateur} {categorie!r}"
+        else:
+            condition = f"{feature} {operateur} {structure_arbre.threshold[noeud]:g}"
         conditions.append(condition)
         if feature not in features_utilisees:
             features_utilisees.append(feature)
         noeud = noeud_suivant
 
-    valeur_predite = float(arbre.predict(donnees_transformees)[0])
+    return conditions, features_utilisees, int(structure_arbre.n_node_samples[noeud])
+
+
+def predire(
+    comestible: Mapping[str, object],
+    model: str | None = None,
+    models_dir: Path = MODELS_DIR,
+) -> Prediction:
+    """Prédit la variation de prix pour un seul dictionnaire de features.
+
+    Les features omises sont présentées au pipeline comme manquantes afin qu'il
+    applique ses imputeurs. ``model`` accepte le nom du modèle avec ou sans
+    extension ``.pkl`` ; sans nom, le fichier le plus récemment modifié est pris.
+    """
+    chemin_modele = _chemin_modele(models_dir, model)
+    pipeline, types_features = _charger_modele(chemin_modele)
+    features = list(types_features)
+
+    inconnues = set(comestible) - set(features)
+    if inconnues:
+        noms = ", ".join(sorted(map(str, inconnues)))
+        raise ValueError(f"Feature(s) inconnue(s) pour le modèle : {noms}")
+
+    valeurs = {feature: comestible.get(feature) for feature in features}
+    ligne = pd.DataFrame([valeurs], columns=features)
+    for feature, type_feature in types_features.items():
+        if type_feature == "numerique":
+            valeur = valeurs[feature]
+            if valeur is not None and (
+                isinstance(valeur, (bool, np.bool_))
+                or not isinstance(valeur, (int, float, np.integer, np.floating))
+            ):
+                raise ValueError(f"La feature « {feature} » doit être numérique ou None")
+            ligne[feature] = pd.to_numeric(ligne[feature], errors="raise")
+        elif type_feature != "categorielle":
+            raise ValueError(f"Type de feature inconnu dans le modèle : {type_feature}")
+
+    etapes = cast(dict[str, object], pipeline.named_steps)
+    preparation = etapes.get("prep")
+    arbre = etapes.get("arbre")
+    if not isinstance(preparation, ColumnTransformer):
+        raise ValueError(f"Le préprocesseur du modèle est invalide : {chemin_modele}")
+    if not isinstance(arbre, DecisionTreeRegressor):
+        raise ValueError(f"Le pipeline du modèle est invalide : {chemin_modele}")
+
+    valeur_predite = float(
+        pipeline.predict(ligne)[0]  # type: ignore[reportUnknownMemberType]
+    )
+    conditions, features_utilisees, n_semaines_feuille = _expliquer_chemin(
+        preparation,
+        arbre,
+        ligne,
+        features,
+        types_features,
+    )
     return Prediction(
         model=chemin_modele.name,
         delta_prix_eur_mwh=valeur_predite,
         chemin=conditions,
         features_utilisees=features_utilisees,
-        n_semaines_feuille=int(structure_arbre.n_node_samples[noeud]),
+        n_semaines_feuille=n_semaines_feuille,
     )
