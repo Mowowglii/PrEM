@@ -1,75 +1,101 @@
 """Tests unitaires de la classe Comestible."""
 
+import sys
 import unittest
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from prem.comestible import Comestible
 
 
 class TestComestible(unittest.TestCase):
-    def test_vers_dict_contient_toutes_les_features(self) -> None:
-        comestible = Comestible()
-
-        self.assertEqual(
-            comestible.vers_dict(),
-            {
-                "delta_prix_m1": None,
-                "var_gaz_ttf": None,
-                "var_co2": None,
-                "ecart_temperature": None,
-                "var_dispo_nucleaire": None,
-                "prod_eolien_solaire": None,
-                "conflit_majeur": None,
-                "zone_conflit": None,
-                "escalade": None,
-            },
-        )
+    
+    features_list : list[str] = [
+                    "delta_prix_m1",
+                    "var_gaz_ttf",
+                    "var_co2",
+                    "ecart_temperature",
+                    "var_dispo_nucleaire",
+                    "prod_eolien_solaire",
+                    "conflit_majeur",
+                    "zone_conflit",
+                    "escalade"
+                ]
 
     def test_comestibles_sont_compatibles_si_une_valeur_est_absente(self) -> None:
-        incomplet = Comestible(conflit_majeur="oui")
-        complet = Comestible(conflit_majeur="oui", zone_conflit="Ukraine")
+        incomplet = Comestible(self.features_list)
+        incomplet.put_value("conflit_majeur", "oui")
+        complet = Comestible(self.features_list)
+        complet.put_value("conflit_majeur", "oui")
+        complet.put_value("zone_conflit", "Ukraine")
 
         self.assertTrue(incomplet.est_compatible_avec(complet))
         self.assertTrue(complet.est_compatible_avec(incomplet))
 
     def test_comestibles_sont_compatibles_si_leurs_valeurs_concordent(self) -> None:
-        premier = Comestible(var_gaz_ttf=0, conflit_majeur="non")
-        second = Comestible(var_gaz_ttf=0.0, conflit_majeur="non")
+        premier = Comestible(self.features_list)
+        premier.put_value("var_gaz_ttf", 0)
+        premier.put_value("conflit_majeur", "non")
+        second = Comestible(self.features_list)
+        second.put_value("var_gaz_ttf", 0.0)
+        second.put_value("conflit_majeur", "non")
 
         self.assertTrue(premier.est_compatible_avec(second))
 
-    def test_fusion_complete_les_valeurs_absentes_sans_modifier_les_sources(self) -> None:
-        partiel = Comestible(conflit_majeur="oui")
-        complet = Comestible(conflit_majeur="oui", zone_conflit="Ukraine")
+    def test_fusion_complete_les_valeurs_absentes(self) -> None:
+        partiel = Comestible(self.features_list)
+        partiel.put_value("conflit_majeur", "oui")
+        complet = Comestible(self.features_list)
+        complet.put_value("conflit_majeur", "oui")
+        complet.put_value("zone_conflit", "Ukraine")
 
-        fusion = partiel.fusionner(complet)
+        partiel.fusionner(complet)
 
         self.assertEqual(
-            fusion,
-            Comestible(conflit_majeur="oui", zone_conflit="Ukraine"),
+            partiel,
+            complet,
         )
-        self.assertEqual(partiel.zone_conflit, None)
-        self.assertEqual(complet.zone_conflit, "Ukraine")
 
     def test_fusion_preserve_les_valeurs_nulles_et_les_zero(self) -> None:
-        premier = Comestible(var_gaz_ttf=0, zone_conflit=None)
-        second = Comestible(var_co2=2.5, zone_conflit="Ukraine")
+        premier = Comestible(self.features_list)
+        premier.put_value("var_gaz_ttf", 0)
+        second = Comestible(self.features_list)
+        second.put_value("var_co2", 2.5)
+        second.put_value("zone_conflit", "Ukraine")
+
+        premier.fusionner(second)        
+
+        resultat = Comestible(self.features_list)
+        resultat.put_value("var_gaz_ttf", 0)
+        resultat.put_value("var_co2", 2.5)
+        resultat.put_value("zone_conflit", "Ukraine")
+
 
         self.assertEqual(
-            premier.fusionner(second),
-            Comestible(var_gaz_ttf=0, var_co2=2.5, zone_conflit="Ukraine"),
+            premier,
+            resultat,
         )
 
     def test_comestibles_avec_valeurs_contradictoires_sont_incompatibles(self) -> None:
-        premier = Comestible(conflit_majeur="oui", zone_conflit="Ukraine")
-        second = Comestible(conflit_majeur="oui", zone_conflit="Moyen-Orient")
+        premier = Comestible(self.features_list)
+        premier.put_value("conflit_majeur", "oui")
+        premier.put_value("zone_conflit", "Ukraine")
+        second = Comestible(self.features_list)
+        second.put_value("conflit_majeur", "oui")
+        second.put_value("zone_conflit", "Moyen-Orient")
 
         self.assertFalse(premier.est_compatible_avec(second))
 
     def test_fusion_refuse_et_signale_les_features_en_conflit(self) -> None:
-        premier = Comestible(var_gaz_ttf=1.0, zone_conflit="Ukraine")
-        second = Comestible(var_gaz_ttf=2.0, zone_conflit="Moyen-Orient")
+        premier = Comestible(self.features_list)
+        premier.put_value("var_gaz_ttf", 1.0)
+        premier.put_value("zone_conflit", "Moyen-Orient")
+        second = Comestible(self.features_list)
+        second.put_value("var_gaz_ttf", 2.0)
+        second.put_value("zone_conflit", "Ukraine")
 
-        with self.assertRaisesRegex(ValueError, "var_gaz_ttf, zone_conflit"):
+        with self.assertRaisesRegex(ValueError, "Incompatibilité avec l'autre Comestible"):
             premier.fusionner(second)
 
 
