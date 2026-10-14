@@ -30,7 +30,7 @@ def generate(n_weeks: int = 260, seed: int = 42, missing: float = 0.02) -> pd.Da
     gaz, co2, dispo = 40.0, 80.0, 75.0
     conflit, zone = False, ""
     delta_precedent = 0.0
-    lignes = []
+    lignes : list[dict[str, float | str | None]] = []
 
     for semaine in semaines:
         w = semaine.isocalendar().week
