@@ -121,7 +121,7 @@ def predict(
     """Prédit la variation de prix et renvoie le chemin suivi dans l'arbre."""
     filename = _nom_fichier_modele(name)
     try:
-        return predire(input.vers_dict(), filename, MODELS_DIR)
+        return predire(input.get_dict(), filename, MODELS_DIR)
     except FileNotFoundError as error:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
