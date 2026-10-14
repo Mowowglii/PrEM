@@ -14,6 +14,7 @@ from httpx import Response as HttpResponse
 
 from prem import api
 from prem.calculateur import DatasetInvalide
+from prem.comestible import Comestible
 from prem.decideur import Prediction
 
 
@@ -132,6 +133,7 @@ class TestApi(unittest.TestCase):
         self.assertEqual(response.json(), image)
 
     def test_predict_returns_prediction_as_json(self) -> None:
+        (self.models_dir / "modele.pkl").touch()
         prediction = Prediction(
             model="modele.pkl",
             delta_prix_eur_mwh=1.5,
@@ -139,6 +141,13 @@ class TestApi(unittest.TestCase):
             features_utilisees=["prix"],
             n_semaines_feuille=4,
         )
+
+        infos_features: dict[str, int | list[str]] = {
+            "nombre_variables_numeriques": 1,
+            "variables_numeriques": ["prix"],
+            "nombre_variables_qualitatives": 1,
+            "variables_qualitatives": ["zone"],
+        }
 
         calls: list[tuple[dict[str, object], str | None, Path]] = []
 
@@ -150,12 +159,33 @@ class TestApi(unittest.TestCase):
             calls.append((features, model, models_dir))
             return prediction
 
+        with patch.object(
+            api,
+            "ModelReader",
+            return_value=_ModelReaderStub(infos_features),
+        ):
+            response_features = self._get("/models/modele/features")
+
+        self.assertEqual(response_features.status_code, 200)
+        infos_recues = response_features.json()
+        features_modele = (
+            infos_recues["variables_numeriques"]
+            + infos_recues["variables_qualitatives"]
+        )
+        comestible = Comestible(features_modele)
+        comestible.put_value("prix", 1.5)
+        comestible.put_value("zone", "France")
+
         with patch.object(api, "predire", side_effect=fake_predire):
-            response = self._post("/models/modele/predict", json={})
+            response = self._post(
+                "/models/modele/predict",
+                json={"dictio": comestible.get_dict()},
+            )
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["model"], "modele.pkl")
         self.assertEqual(response.json()["delta_prix_eur_mwh"], 1.5)
+        self.assertEqual(calls[0][0], {"prix": 1.5, "zone": "France"})
         self.assertEqual(calls[0][1:], ("modele.pkl", self.models_dir))
 
     def test_unknown_model_returns_not_found(self) -> None:
