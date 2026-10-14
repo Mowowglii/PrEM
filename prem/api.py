@@ -8,10 +8,10 @@ from typing import Annotated
 from fastapi import FastAPI, File, Form, HTTPException, Path as PathParameter, UploadFile, status
 from pandas.errors import ParserError
 
-from calculateur import DatasetInvalide, entrainer
-from comestible import Comestible
-from decideur import Prediction, predire
-from model_reader import ModelReader
+from .calculateur import DatasetInvalide, entrainer
+from .comestible import Comestible
+from .decideur import Prediction, predire
+from .model_reader import ModelReader
 
 DATASETS_DIR = Path("data")
 MODELS_DIR = Path("cart_models")
@@ -86,6 +86,26 @@ def get_features_of_model(
         )
     try:
         return ModelReader(filename).get_infos()
+    except ValueError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(error),
+        ) from error
+
+
+@app.get("/models/{name}/tree")
+def get_tree_of_model(
+    name: Annotated[str, PathParameter(title="Nom du modèle dont on affiche l'arbre")],
+) -> dict[str, str]:
+    """Renvoie l'image PNG de l'arbre en Base64 dans une réponse JSON."""
+    filename = _nom_fichier_modele(name)
+    if not (MODELS_DIR / filename).is_file():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Modèle introuvable : {filename}",
+        )
+    try:
+        return ModelReader(filename).get_tree_image()
     except ValueError as error:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
