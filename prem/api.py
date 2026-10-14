@@ -8,10 +8,10 @@ from typing import Annotated
 from fastapi import FastAPI, File, Form, HTTPException, Path as PathParameter, UploadFile, status
 from pandas.errors import ParserError
 
-from .calculateur import DatasetInvalide, entrainer
-from .comestible import Comestible
-from .decideur import Prediction, predire
-from .model_reader import ModelReader
+from calculateur import DatasetInvalide, entrainer
+from comestible import Comestible
+from decideur import Prediction, predire
+from model_reader import ModelReader
 
 DATASETS_DIR = Path("data")
 MODELS_DIR = Path("cart_models")
