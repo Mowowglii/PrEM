@@ -94,7 +94,6 @@ def get_features_of_model(
 
 
 @app.post("/models/{name}/predict")
-@app.get("/models/{name}/predict")
 def predict(
     name: Annotated[str, PathParameter(title="Nom du modèle à utiliser")],
     input: Comestible,
