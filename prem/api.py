@@ -224,8 +224,8 @@ async def predict(
     input: Comestible,
 ) -> Prediction:
     """Prédit sans bloquer la boucle d'événements du serveur."""
-    filename = nom_fichier_modele(name)
     try:
+        filename = _nom_modele_requete(name)
         return await run_in_threadpool(
             predire,
             input.get_dict(),
