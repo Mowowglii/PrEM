@@ -1,46 +1,25 @@
-import base64
+"""Charge un modèle CART et expose ses informations et son arbre."""
+
 from io import BytesIO
-import joblib  # type: ignore[reportMissingTypeStubs]
-from matplotlib.backends.backend_agg import FigureCanvasAgg
-from matplotlib.figure import Figure
 from pathlib import Path
 from typing import cast
 
+from matplotlib.backends.backend_agg import FigureCanvasAgg
+from matplotlib.figure import Figure
 from sklearn.compose import ColumnTransformer
-from sklearn.pipeline import Pipeline
 from sklearn.tree import DecisionTreeRegressor, plot_tree
+
+from .artefact import charger_modele
+from .paths import MODELS_DIR
 
 
 class ModelReader:
-    dir = Path("cart_models")
-
-    def __init__(self, name: str) -> None:
-        if not ModelReader.dir.joinpath(name).is_file():
+    def __init__(self, name: str, models_dir: Path = MODELS_DIR) -> None:
+        path = models_dir / name
+        if not path.is_file():
             raise ValueError(f"Nom de modèle inconnu : {name}")
 
-        path = ModelReader.dir.joinpath(name)
-        artefact = cast(object, joblib.load(path))  # type: ignore[reportUnknownMemberType]
-        if not isinstance(artefact, dict):
-            raise ValueError(f"Artefact de modèle invalide : {path}")
-
-        donnees_artefact = cast(dict[object, object], artefact)
-        pipeline = donnees_artefact.get("pipeline")
-        features = donnees_artefact.get("features")
-        if not isinstance(pipeline, Pipeline) or not isinstance(features, dict):
-            raise ValueError(f"Artefact de modèle incomplet : {path}")
-
-        features_validees: dict[str, str] = {}
-        for nom, type_feature in cast(dict[object, object], features).items():
-            if (
-                not isinstance(nom, str)
-                or not isinstance(type_feature, str)
-                or type_feature not in {"numerique", "categorielle"}
-            ):
-                raise ValueError(f"Liste de features invalide dans le modèle : {path}")
-            features_validees[nom] = type_feature
-
-        self.model: Pipeline = pipeline
-        self.features = features_validees
+        self.model, self.features = charger_modele(path)
 
     def get_infos(self) -> dict[str, int | list[str]]:
         """Renvoie les noms et les nombres de variables explicatives par type."""
@@ -59,8 +38,8 @@ class ModelReader:
             "variables_qualitatives": variables_qualitatives,
         }
 
-    def get_tree_image(self) -> dict[str, str]:
-        """Renvoie l'arbre comme PNG encodé en Base64, prêt pour une réponse JSON."""
+    def get_tree_image(self) -> bytes:
+        """Renvoie les octets PNG de l'arbre de décision."""
         etapes = cast(dict[str, object], self.model.named_steps)
         preparation = etapes.get("prep")
         arbre = etapes.get("arbre")
@@ -85,8 +64,4 @@ class ModelReader:
 
         image = BytesIO()
         canvas.print_png(image)  # type: ignore[reportUnknownMemberType]
-        return {
-            "media_type": "image/png",
-            "data_base64": base64.b64encode(image.getvalue()).decode("ascii"),
-        }
-        
+        return image.getvalue()

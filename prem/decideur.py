@@ -5,15 +5,14 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import Mapping, Protocol, cast
 
-import joblib  # type: ignore[reportMissingTypeStubs]
 import numpy as np
 import pandas as pd
 from numpy.typing import NDArray
 from sklearn.compose import ColumnTransformer
-from sklearn.pipeline import Pipeline
 from sklearn.tree import DecisionTreeRegressor
 
-MODELS_DIR: Path = Path("cart_models")
+from .artefact import charger_modele
+from .paths import MODELS_DIR
 
 
 class _StructureArbre(Protocol):
@@ -53,31 +52,6 @@ def _chemin_modele(models_dir: Path, nom_modele: str | None) -> Path:
     if not chemin.is_file():
         raise FileNotFoundError(f"Modèle introuvable : {chemin}")
     return chemin
-
-
-def _charger_modele(
-    chemin: Path,
-) -> tuple[Pipeline, dict[str, str]]:
-    artefact = cast(object, joblib.load(chemin))  # type: ignore[reportUnknownMemberType]
-    if not isinstance(artefact, dict):
-        raise ValueError(f"Artefact de modèle invalide : {chemin}")
-
-    donnees_artefact = cast(dict[object, object], artefact)
-    pipeline = donnees_artefact.get("pipeline")
-    features_brutes = donnees_artefact.get("features")
-    if not isinstance(pipeline, Pipeline) or not isinstance(features_brutes, dict):
-        raise ValueError(f"Artefact de modèle incomplet : {chemin}")
-
-    features: dict[str, str] = {}
-    for nom, type_feature in cast(dict[object, object], features_brutes).items():
-        if (
-            not isinstance(nom, str)
-            or not isinstance(type_feature, str)
-            or type_feature not in {"numerique", "categorielle"}
-        ):
-            raise ValueError(f"Liste de features invalide dans le modèle : {chemin}")
-        features[nom] = type_feature
-    return pipeline, features
 
 
 def _nom_feature_origine(nom_transforme: str, features: list[str]) -> tuple[str, str]:
@@ -155,7 +129,7 @@ def predire(
     extension ``.pkl`` ; sans nom, le fichier le plus récemment modifié est pris.
     """
     chemin_modele = _chemin_modele(models_dir, model)
-    pipeline, types_features = _charger_modele(chemin_modele)
+    pipeline, types_features = charger_modele(chemin_modele)
     features = list(types_features)
 
     inconnues = set(comestible) - set(features)
