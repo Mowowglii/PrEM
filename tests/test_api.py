@@ -85,11 +85,6 @@ class TestApi(unittest.TestCase):
 
         with (
             patch.object(api, "entrainer_fichier_televerse", side_effect=fake_entrainer),
-            patch.object(
-                api,
-                "run_in_threadpool",
-                wraps=api.run_in_threadpool,
-            ) as run_in_threadpool,
         ):
             response = self._post(
                 "/models",
@@ -99,7 +94,6 @@ class TestApi(unittest.TestCase):
 
         self.assertEqual(response.status_code, 201)
         self.assertEqual(response.json(), {"model": "modele"})
-        self.assertEqual(run_in_threadpool.await_count, 1)
 
     def test_create_model_returns_unprocessable_entity_for_invalid_dataset(self) -> None:
         with patch.object(
@@ -156,11 +150,6 @@ class TestApi(unittest.TestCase):
 
         with (
             patch.object(api, "entrainer_modele_televerse", side_effect=fake_train),
-            patch.object(
-                api,
-                "run_in_threadpool",
-                wraps=api.run_in_threadpool,
-            ) as run_in_threadpool,
         ):
             response = self._post(
                 "/models/modele/train",
@@ -170,7 +159,6 @@ class TestApi(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), report)
         self.assertEqual(calls, [("modele.pkl", self.models_dir)])
-        self.assertEqual(run_in_threadpool.await_count, 1)
 
     def test_delete_model_and_dataset(self) -> None:
         (self.models_dir / "modele.pkl").touch()
@@ -200,34 +188,24 @@ class TestApi(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), features)
 
-    def test_get_tree_returns_json_safe_image_data(self) -> None:
+    def test_get_tree_returns_png_image(self) -> None:
         (self.models_dir / "modele.pkl").touch()
-        image = {
-            "media_type": "image/png",
-            "data_base64": "iVBORw0KGgo=",
-        }
+        image = b"\x89PNG\r\n\x1a\nimage data"
 
         class _ReaderWithTreeImage(_ModelReaderStub):
-            def get_tree_image(self) -> dict[str, str]:
+            def get_tree_image(self) -> bytes:
                 return image
 
-        with (
-            patch.object(
-                api,
-                "ModelReader",
-                return_value=_ReaderWithTreeImage({}),
-            ),
-            patch.object(
-                api,
-                "run_in_threadpool",
-                wraps=api.run_in_threadpool,
-            ) as run_in_threadpool,
+        with patch.object(
+            api,
+            "ModelReader",
+            return_value=_ReaderWithTreeImage({}),
         ):
             response = self._get("/models/modele/tree")
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json(), image)
-        self.assertEqual(run_in_threadpool.await_count, 1)
+        self.assertEqual(response.headers["content-type"], "image/png")
+        self.assertEqual(response.content, image)
 
     def test_predict_returns_prediction_as_json(self) -> None:
         (self.models_dir / "modele.pkl").touch()
@@ -273,14 +251,7 @@ class TestApi(unittest.TestCase):
         comestible.put_value("prix", 1.5)
         comestible.put_value("zone", "France")
 
-        with (
-            patch.object(api, "predire", side_effect=fake_predire),
-            patch.object(
-                api,
-                "run_in_threadpool",
-                wraps=api.run_in_threadpool,
-            ) as run_in_threadpool,
-        ):
+        with patch.object(api, "predire", side_effect=fake_predire):
             response = self._post(
                 "/models/modele/predict",
                 json={"dictio": comestible.get_dict()},
@@ -291,7 +262,6 @@ class TestApi(unittest.TestCase):
         self.assertEqual(response.json()["delta_prix_eur_mwh"], 1.5)
         self.assertEqual(calls[0][0], {"prix": 1.5, "zone": "France"})
         self.assertEqual(calls[0][1:], ("modele.pkl", self.models_dir))
-        self.assertEqual(run_in_threadpool.await_count, 1)
 
     def test_unknown_model_returns_not_found(self) -> None:
         response = self._get("/models/inexistant/features")

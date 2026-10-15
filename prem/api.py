@@ -1,13 +1,20 @@
 """API FastAPI pour entraîner, consulter et utiliser les modèles CART."""
-from pathlib import Path
-from typing import Annotated, Callable, cast
+from typing import Annotated
 
-from fastapi import FastAPI, File, Form, HTTPException, Path as PathParameter, UploadFile, status
+from fastapi import (
+    FastAPI,
+    File,
+    Form,
+    HTTPException,
+    Path as PathParameter,
+    Response,
+    UploadFile,
+    status,
+)
 from pandas.errors import ParserError
-from starlette.concurrency import run_in_threadpool
 
-from . import file_manager
 from .file_manager import (
+    enregistrer_dataset,
     entrainer_fichier_televerse,
     entrainer_modele_televerse,
     nom_fichier_dataset,
@@ -17,13 +24,7 @@ from .calculateur import DatasetInvalide
 from .comestible import Comestible
 from .decideur import Prediction, predire
 from .model_reader import ModelReader
-
-DATASETS_DIR = Path("data")
-MODELS_DIR = Path("cart_models")
-enregistrer_dataset = cast(
-    Callable[[str, bytes, Path], str],
-    getattr(file_manager, "enregistrer_dataset"),
-)
+from .paths import DATASETS_DIR, MODELS_DIR
 
 app = FastAPI(
     title="PrEM",
@@ -52,7 +53,7 @@ def _nom_dataset_requete(name: str) -> str:
 
 
 @app.post("/models", status_code=status.HTTP_201_CREATED)
-async def create_model(
+def create_model(
     csv: Annotated[UploadFile, File(description="Fichier CSV d'entraînement")],
     max_depth: Annotated[int | None, Form()] = None,
 ) -> dict[str, object]:
@@ -64,8 +65,7 @@ async def create_model(
         )
 
     try:
-        return await run_in_threadpool(
-            entrainer_fichier_televerse,
+        return entrainer_fichier_televerse(
             csv.file,
             max_depth,
             MODELS_DIR,
@@ -94,7 +94,7 @@ def get_datasets_name() -> list[str]:
 
 
 @app.get("/datasets/{name}")
-async def get_dataset(
+def get_dataset(
     name: Annotated[str, PathParameter(title="Nom du dataset à récupérer")],
 ) -> dict[str, str]:
     """Renvoie le nom et le contenu du fichier CSV demandé."""
@@ -106,7 +106,7 @@ async def get_dataset(
             detail=f"Dataset introuvable : {filename}",
         )
     try:
-        contenu = await run_in_threadpool(dataset_path.read_text, encoding="utf-8")
+        contenu = dataset_path.read_text(encoding="utf-8")
     except UnicodeDecodeError as error:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -116,7 +116,7 @@ async def get_dataset(
 
 
 @app.post("/datasets")
-async def create_dataset(
+def create_dataset(
     csv: Annotated[UploadFile, File(description="Fichier CSV à sauvegarder")],
 ) -> str:
     """Sauvegarde le CSV téléversé et renvoie son nom."""
@@ -126,10 +126,9 @@ async def create_dataset(
             detail="Aucun dataset n'a été fourni.",
         )
     filename = _nom_dataset_requete(csv.filename)
-    contenu = await csv.read()
+    contenu = csv.file.read()
     try:
-        return await run_in_threadpool(
-            enregistrer_dataset,
+        return enregistrer_dataset(
             filename,
             contenu,
             DATASETS_DIR,
@@ -142,7 +141,7 @@ async def create_dataset(
 
 
 @app.post("/models/{name}/train")
-async def train_model(
+def train_model(
     name: Annotated[str, PathParameter(title="Nom du modèle que l'on souhaite entrainer")],
     csv: Annotated[UploadFile, File(description="Fichier CSV d'entraînement")],
 ) -> dict[str, object]:
@@ -159,8 +158,7 @@ async def train_model(
             detail="Aucun jeu de données n'a été fourni.",
         )
     try:
-        return await run_in_threadpool(
-            entrainer_modele_televerse,
+        return entrainer_modele_televerse(
             csv.file,
             filename,
             MODELS_DIR,
@@ -189,7 +187,7 @@ def get_features_of_model(
             detail=f"Modèle introuvable : {filename}",
         )
     try:
-        return ModelReader(filename).get_infos()
+        return ModelReader(filename, MODELS_DIR).get_infos()
     except ValueError as error:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -197,11 +195,11 @@ def get_features_of_model(
         ) from error
 
 
-@app.get("/models/{name}/tree")
-async def get_tree_of_model(
+@app.get("/models/{name}/tree", response_class=Response)
+def get_tree_of_model(
     name: Annotated[str, PathParameter(title="Nom du modèle dont on affiche l'arbre")],
-) -> dict[str, str]:
-    """Renvoie l'image PNG de l'arbre en Base64 dans une réponse JSON."""
+) -> Response:
+    """Renvoie l'arbre de décision sous forme d'une image PNG."""
     filename = _nom_modele_requete(name)
     if not (MODELS_DIR / filename).is_file():
         raise HTTPException(
@@ -209,8 +207,8 @@ async def get_tree_of_model(
             detail=f"Modèle introuvable : {filename}",
         )
     try:
-            reader = ModelReader(filename)
-            return await run_in_threadpool(reader.get_tree_image)
+        reader = ModelReader(filename, MODELS_DIR)
+        return Response(content=reader.get_tree_image(), media_type="image/png")
     except ValueError as error:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -219,15 +217,14 @@ async def get_tree_of_model(
 
 
 @app.post("/models/{name}/predict")
-async def predict(
+def predict(
     name: Annotated[str, PathParameter(title="Nom du modèle à utiliser")],
     input: Comestible,
 ) -> Prediction:
-    """Prédit sans bloquer la boucle d'événements du serveur."""
-    filename = nom_fichier_modele(name)
+    """Prédit dans le threadpool géré par FastAPI pour cette route synchrone."""
     try:
-        return await run_in_threadpool(
-            predire,
+        filename = _nom_modele_requete(name)
+        return predire(
             input.get_dict(),
             filename,
             MODELS_DIR,
@@ -245,7 +242,7 @@ async def predict(
 
 
 @app.delete("/models/{name}")
-async def delete_model(
+def delete_model(
     name: Annotated[str, PathParameter(title="Nom du modèle à supprimer")]
 ) -> dict[str, str]:
     """Supprime le modèle demandé et renvoie le nom du fichier supprimé."""
@@ -257,7 +254,7 @@ async def delete_model(
             detail=f"Modèle introuvable : {filename}",
         )
     try:
-        await run_in_threadpool(chemin.unlink)
+        chemin.unlink()
     except FileNotFoundError as error:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -267,7 +264,7 @@ async def delete_model(
 
 
 @app.delete("/datasets/{name}")
-async def delete_dataset(
+def delete_dataset(
     name: Annotated[str, PathParameter(title="Nom du dataset à supprimer")]
 ) -> dict[str, str]:
     """Supprime le dataset demandé et renvoie le nom du fichier supprimé."""
@@ -279,7 +276,7 @@ async def delete_dataset(
             detail=f"Dataset introuvable : {filename}",
         )
     try:
-        await run_in_threadpool(chemin.unlink)
+        chemin.unlink()
     except FileNotFoundError as error:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

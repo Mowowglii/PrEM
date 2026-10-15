@@ -1,11 +1,9 @@
 """Tests unitaires du lecteur de modèles."""
 
-import base64
 import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -20,7 +18,7 @@ from prem.model_reader import ModelReader
 
 
 class TestModelReader(unittest.TestCase):
-    def test_get_tree_image_returns_json_safe_png(self) -> None:
+    def test_get_tree_image_returns_png_bytes(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             models_dir = Path(temporary_directory)
             preparation = ColumnTransformer([
@@ -42,12 +40,9 @@ class TestModelReader(unittest.TestCase):
                 models_dir / "modele.pkl",
             )
 
-            with patch.object(ModelReader, "dir", models_dir):
-                image = ModelReader("modele.pkl").get_tree_image()
+            image = ModelReader("modele.pkl", models_dir).get_tree_image()
 
-        self.assertEqual(image["media_type"], "image/png")
-        png_data = base64.b64decode(image["data_base64"], validate=True)
-        self.assertTrue(png_data.startswith(b"\x89PNG\r\n\x1a\n"))
+        self.assertTrue(image.startswith(b"\x89PNG\r\n\x1a\n"))
 
     def test_get_infos_compte_les_features_numeriques_et_categorielles(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -65,8 +60,7 @@ class TestModelReader(unittest.TestCase):
                 models_dir / "modele.pkl",
             )
 
-            with patch.object(ModelReader, "dir", models_dir):
-                reader = ModelReader("modele.pkl")
+            reader = ModelReader("modele.pkl", models_dir)
 
             self.assertEqual(
                 reader.get_infos(),
@@ -90,15 +84,13 @@ class TestModelReader(unittest.TestCase):
                 models_dir / "modele.pkl",
             )
 
-            with patch.object(ModelReader, "dir", models_dir):
-                with self.assertRaisesRegex(ValueError, "Liste de features invalide"):
-                    ModelReader("modele.pkl")
+            with self.assertRaisesRegex(ValueError, "Liste de features invalide"):
+                ModelReader("modele.pkl", models_dir)
 
     def test_rejects_unknown_model_name(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
-            with patch.object(ModelReader, "dir", Path(temporary_directory)):
-                with self.assertRaisesRegex(ValueError, "Nom de modèle inconnu"):
-                    ModelReader("inexistant.pkl")
+            with self.assertRaisesRegex(ValueError, "Nom de modèle inconnu"):
+                ModelReader("inexistant.pkl", Path(temporary_directory))
 
 
 if __name__ == "__main__":

@@ -20,7 +20,9 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder
 from sklearn.tree import DecisionTreeRegressor
 
-MODELS_DIR = Path("cart_models")
+from .artefact import charger_modele
+from .paths import MODELS_DIR
+
 COLONNE_DATE = "semaine"
 CIBLE = "delta_prix"
 N_SPLITS = 5
@@ -154,14 +156,7 @@ def entrainer_deja_existant(
     if not chemin_modele.is_file():
         raise FileNotFoundError(f"Modèle introuvable : {nom_fichier}")
 
-    artefact = cast(object, joblib.load(chemin_modele))  # type: ignore[reportUnknownMemberType]
-    if not isinstance(artefact, dict):
-        raise ValueError(f"Artefact de modèle invalide : {chemin_modele}")
-    donnees_artefact = cast(dict[object, object], artefact)
-    pipeline = donnees_artefact.get("pipeline")
-    features_existantes = donnees_artefact.get("features")
-    if not isinstance(pipeline, Pipeline) or not isinstance(features_existantes, dict):
-        raise ValueError(f"Artefact de modèle incomplet : {chemin_modele}")
+    pipeline, features_existantes = charger_modele(chemin_modele)
 
     X, y = charger_dataset(source)
     types_features = {
@@ -170,16 +165,7 @@ def entrainer_deja_existant(
         )
         for colonne in X.columns
     }
-    features_validees: dict[str, str] = {}
-    for nom, type_feature in cast(dict[object, object], features_existantes).items():
-        if (
-            not isinstance(nom, str)
-            or not isinstance(type_feature, str)
-            or type_feature not in {"numerique", "categorielle"}
-        ):
-            raise ValueError(f"Liste de features invalide dans le modèle : {chemin_modele}")
-        features_validees[nom] = type_feature
-    if types_features != features_validees:
+    if types_features != features_existantes:
         raise DatasetInvalide(
             "Les variables du dataset ne correspondent pas à celles du modèle existant"
         )
@@ -212,7 +198,7 @@ def entrainer_deja_existant(
     }
     artefact_mis_a_jour: dict[str, object] = {
         "pipeline": pipeline,
-        "features": features_validees,
+        "features": features_existantes,
         "rapport": rapport,
     }
     joblib.dump(artefact_mis_a_jour, chemin_modele)  # type: ignore[reportUnknownMemberType]
