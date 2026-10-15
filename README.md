@@ -43,7 +43,7 @@ La documentation interactive est disponible sur `/docs`.
 - `DELETE /models/{name}` et `DELETE /datasets/{name}` : suppriment un modèle ou un dataset.
 - `GET /models/{name}/features` : renvoie les variables numériques et qualitatives du modèle.
 - `GET /models/{name}/tree` : renvoie l'arbre de décision sous forme d'un PNG Base64 (`media_type` et `data_base64`).
-- `POST /models/{name}/predict` : prédit avec un corps JSON correspondant aux champs de `Comestible`. La route `GET` historique reste disponible.
+- `POST /models/{name}/predict` : prédit avec un corps JSON correspondant aux champs de `Comestible`.
 
 ### Parcours de prédiction
 
