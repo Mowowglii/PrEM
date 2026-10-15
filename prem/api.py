@@ -1,13 +1,13 @@
 """API FastAPI pour entraîner, consulter et utiliser les modèles CART."""
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Callable, cast
 
 from fastapi import FastAPI, File, Form, HTTPException, Path as PathParameter, UploadFile, status
 from pandas.errors import ParserError
 from starlette.concurrency import run_in_threadpool
 
+from . import file_manager
 from .file_manager import (
-    enregistrer_dataset,
     entrainer_fichier_televerse,
     entrainer_modele_televerse,
     nom_fichier_dataset,
@@ -20,6 +20,10 @@ from .model_reader import ModelReader
 
 DATASETS_DIR = Path("data")
 MODELS_DIR = Path("cart_models")
+enregistrer_dataset = cast(
+    Callable[[str, bytes, Path], str],
+    getattr(file_manager, "enregistrer_dataset"),
+)
 
 app = FastAPI(
     title="PrEM",
