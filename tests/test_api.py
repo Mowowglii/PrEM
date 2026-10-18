@@ -14,7 +14,7 @@ from httpx import Response as HttpResponse
 
 from prem import api
 from prem.calculateur import DatasetInvalide
-from prem.comestible import Comestible
+from prem.comestible import ComestibleBuilder
 from prem.decideur import Prediction
 
 
@@ -243,18 +243,18 @@ class TestApi(unittest.TestCase):
 
         self.assertEqual(response_features.status_code, 200)
         infos_recues = response_features.json()
-        features_modele = (
-            infos_recues["variables_numeriques"]
-            + infos_recues["variables_qualitatives"]
+        builder = ComestibleBuilder()
+        builder.attach_feats(
+            infos_recues["variables_numeriques"],
+            infos_recues["variables_qualitatives"],
         )
-        comestible = Comestible(features_modele)
-        comestible.put_value("prix", 1.5)
-        comestible.put_value("zone", "France")
+        builder.packing({"prix": 1.5, "zone": "France"})
+        comestible = builder.build()
 
         with patch.object(api, "predire", side_effect=fake_predire):
             response = self._post(
                 "/models/modele/predict",
-                json={"dictio": comestible.get_dict()},
+                json={"payload": comestible.get_dict()},
             )
 
         self.assertEqual(response.status_code, 200)
