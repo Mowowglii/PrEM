@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from collections.abc import Iterable
 from pathlib import Path
-from typing import Mapping, Protocol, cast
+from typing import Protocol, cast
 
 import numpy as np
 import pandas as pd
@@ -12,6 +12,7 @@ from sklearn.compose import ColumnTransformer
 from sklearn.tree import DecisionTreeRegressor
 
 from .artefact import charger_modele
+from .comestible import Comestible
 from .paths import MODELS_DIR
 
 
@@ -118,26 +119,28 @@ def _expliquer_chemin(
 
 
 def predire(
-    comestible: Mapping[str, object],
+    comestible: Comestible,
     model: str | None = None,
     models_dir: Path = MODELS_DIR,
 ) -> Prediction:
-    """Prédit la variation de prix pour un seul dictionnaire de features.
+    """Prédit la variation de prix pour un seul Comestible.
 
-    Les features omises sont présentées au pipeline comme manquantes afin qu'il
-    applique ses imputeurs. ``model`` accepte le nom du modèle avec ou sans
-    extension ``.pkl`` ; sans nom, le fichier le plus récemment modifié est pris.
+    Les features omises ou à None sont présentées au pipeline comme manquantes
+    afin qu'il applique ses imputeurs. ``model`` accepte le nom du modèle avec ou
+    sans extension ``.pkl`` ; sans nom, le fichier le plus récemment modifié est
+    pris.
     """
     chemin_modele = _chemin_modele(models_dir, model)
     pipeline, types_features = charger_modele(chemin_modele)
     features = list(types_features)
+    payload = comestible.get_dict()
 
-    inconnues = set(comestible) - set(features)
+    inconnues = set(payload) - set(features)
     if inconnues:
         noms = ", ".join(sorted(map(str, inconnues)))
         raise ValueError(f"Feature(s) inconnue(s) pour le modèle : {noms}")
 
-    valeurs = {feature: comestible.get(feature) for feature in features}
+    valeurs = {feature: payload.get(feature) for feature in features}
     ligne = pd.DataFrame([valeurs], columns=features)
     for feature, type_feature in types_features.items():
         if type_feature == "numerique":
