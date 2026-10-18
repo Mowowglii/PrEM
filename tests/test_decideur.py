@@ -14,6 +14,7 @@ from sklearn.tree import DecisionTreeRegressor
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from prem.comestible import Comestible
 from prem.decideur import predire
 
 
@@ -42,7 +43,9 @@ class TestPredire(unittest.TestCase):
             )
 
             with patch("prem.decideur.MODELS_DIR", models_dir):
-                prediction = predire({"prix": 0.5}, "modele.pkl", models_dir)
+                prediction = predire(
+                    Comestible({"prix": 0.5}), "modele.pkl", models_dir
+                )
 
         self.assertEqual(prediction.delta_prix_eur_mwh, 0.0)
         self.assertEqual(prediction.chemin, ["prix <= 1.5"])

@@ -225,7 +225,7 @@ def predict(
     try:
         filename = _nom_modele_requete(name)
         return predire(
-            input.get_dict(),
+            input,
             filename,
             MODELS_DIR,
         )
