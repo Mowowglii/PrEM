@@ -47,31 +47,35 @@ La documentation interactive est disponible sur `/docs`.
 
 ### Parcours de prédiction
 
-Avant de demander une prédiction, récupérez les variables attendues par le modèle avec `GET /models/{name}/features`. Construisez ensuite un `Comestible` à partir des noms de variables numériques et qualitatives renvoyés, renseignez les valeurs connues, puis envoyez son dictionnaire à `POST /models/{name}/predict`. Les variables laissées à `None` seront imputées par le pipeline du modèle.
+Avant de demander une prédiction, récupérez les variables attendues par le modèle avec `GET /models/{name}/features`. Passez ensuite les variables numériques et qualitatives renvoyées à un `ComestibleBuilder`, renseignez les valeurs connues avec `packing`, puis envoyez le `Comestible` construit à `POST /models/{name}/predict` sous la clé `payload`. Les variables non renseignées restent à `None` et seront imputées par le pipeline du modèle.
 
 ```python
 import requests
 
-from prem.comestible import Comestible
+from prem.comestible import ComestibleBuilder
 
 base_url = "http://127.0.0.1:8000"
 model = "cart_20261014-141920.pkl"
 
-features = requests.get(f"{base_url}/models/{model}/features").json()
-noms_variables = (
-    features["variables_numeriques"]
-    + features["variables_qualitatives"]
-)
+response = requests.get(f"{base_url}/models/{model}/features")
+response.raise_for_status()
+features = response.json()
 
-comestible = Comestible(noms_variables)
-comestible.put_value("var_gaz_ttf", 2.0)  # Exemple : renseigner une variable connue
-comestible.put_value("escalade", "non")
+builder = ComestibleBuilder()
+builder.attach_feats(
+    features["variables_numeriques"],
+    features["variables_qualitatives"],
+)
+# Exemple : renseigner uniquement les variables connues
+builder.packing({"var_gaz_ttf": 2.0, "escalade": "non"})
+comestible = builder.build()
 
 response = requests.post(
     f"{base_url}/models/{model}/predict",
-    json={"dictio": comestible.get_dict()},
+    json={"payload": comestible.get_dict()},
 )
+response.raise_for_status()
 prediction = response.json()
 ```
 
-N'envoyez que des clés annoncées par `/features` : chaque variable fournie doit appartenir au modèle. Vous pouvez omettre les variables inconnues ou laisser leurs valeurs à `None`.
+`packing` lève une `ValueError` si une clé n'est pas annoncée par `/features`, si une variable numérique ne reçoit pas un `int` ou un `float`, ou si une variable qualitative ne reçoit pas une `str`.
